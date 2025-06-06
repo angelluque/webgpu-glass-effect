@@ -32,7 +32,7 @@ async function initWebGPU() {
     sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 
     uniformBuffer = device.createBuffer({
-      size: 12,
+      size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
@@ -92,7 +92,7 @@ function resizeCanvas() {
 }
 
 function updateUniforms(intensity) {
-  const array = new Float32Array([intensity, ...canvasSize]);
+  const array = new Float32Array([intensity, ...canvasSize, 0.0]);
   device.queue.writeBuffer(uniformBuffer, 0, array.buffer);
   logMsg("🎚️ Intensidad: " + intensity);
 }
