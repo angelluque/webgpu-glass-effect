@@ -1,142 +1,140 @@
+
 const log = document.getElementById("log");
+const canvas = document.getElementById("canvas");
+const intensitySlider = document.getElementById("intensity");
+let device, context, format, pipeline, bindGroup, uniformBuffer, texture, sampler;
 
 function logMsg(msg) {
   console.log(msg);
   log.textContent += "\n" + msg;
 }
 
-async function init() {
-  try {
-    logMsg("Comprobando soporte WebGPU...");
-    if (!navigator.gpu) {
-      logMsg("❌ WebGPU no disponible. Usa Chrome 113+ con WebGPU habilitado y un contexto seguro (HTTPS/localhost).");
-      return;
-    }
-
-    logMsg("Solicitando adaptador WebGPU...");
-    const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) {
-      logMsg("❌ No se pudo obtener el adaptador WebGPU.");
-      return;
-    }
-
-    logMsg("Solicitando dispositivo WebGPU...");
-    const device = await adapter.requestDevice();
-    if (!device) {
-      logMsg("❌ No se pudo obtener el dispositivo WebGPU.");
-      return;
-    }
-
-    logMsg("Configurando canvas...");
-    const canvas = document.getElementById("canvas");
-    if (!canvas) {
-      logMsg("❌ No se encontró el elemento <canvas id='canvas'>.");
-      return;
-    }
-
-    // Set canvas size explicitly
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-    logMsg(`Canvas configurado: ${canvas.width}x${canvas.height}`);
-
-    logMsg("Obteniendo contexto WebGPU...");
-    const context = canvas.getContext("webgpu");
-    if (!context) {
-      logMsg("❌ No se pudo obtener el contexto WebGPU.");
-      return;
-    }
-
-    const format = navigator.gpu.getPreferredCanvasFormat();
-    logMsg(`Formato de canvas preferido: ${format}`);
-
-    logMsg("Configurando contexto WebGPU...");
-    context.configure({
-      device,
-      format,
-      alphaMode: "opaque"
-    });
-
-    logMsg("Creando módulo de shader...");
-    const shaderModule = device.createShaderModule({
-      code: `
-        struct VertexOut {
-          @builtin(position) Position : vec4<f32>,
-        };
-
-        @vertex
-        fn vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOut {
-          var pos = array<vec2<f32>, 6>(
-            vec2<f32>(-1.0, -1.0),
-            vec2<f32>(1.0, -1.0),
-            vec2<f32>(-1.0, 1.0),
-            vec2<f32>(-1.0, 1.0),
-            vec2<f32>(1.0, -1.0),
-            vec2<f32>(1.0, 1.0)
-          );
-          var output : VertexOut;
-          output.Position = vec4<f32>(pos[vertexIndex], 0.0, 1.0);
-          return output;
-        }
-
-        @fragment
-        fn fs() -> @location(0) vec4<f32> {
-          return vec4<f32>(0.0, 0.3, 1.0, 1.0); // Azul
-        }
-      `
-    });
-
-    logMsg("Creando pipeline de renderizado...");
-    const pipeline = device.createRenderPipeline({
-      layout: "auto",
-      vertex: {
-        module: shaderModule,
-        entryPoint: "vs"
-      },
-      fragment: {
-        module: shaderModule,
-        entryPoint: "fs",
-        targets: [{ format }]
-      },
-      primitive: {
-        topology: "triangle-list"
-      }
-    });
-
-    logMsg("Iniciando renderizado...");
-    function render() {
-      const commandEncoder = device.createCommandEncoder();
-      const textureView = context.getCurrentTexture().createView();
-
-      const renderPassDescriptor = {
-        colorAttachments: [{
-          view: textureView,
-          clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
-          loadOp: "clear",
-          storeOp: "store"
-        }]
-      };
-
-      const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-      passEncoder.setPipeline(pipeline);
-      passEncoder.draw(6, 1, 0, 0);
-      passEncoder.end();
-
-      device.queue.submit([commandEncoder.finish()]);
-      logMsg("Frame renderizado.");
-    }
-
-    render();
-    logMsg("✅ Render azul completado.");
-
-    // Optional animation loop for continuous rendering
-    // function frame() {
-    //   render();
-    //   requestAnimationFrame(frame);
-    // }
-    // requestAnimationFrame(frame);
-  } catch (err) {
-    logMsg("❌ ERROR: " + err.message);
+async function initWebGPU() {
+  if (!navigator.gpu) {
+    logMsg("WebGPU no disponible.");
+    return;
   }
+
+  const adapter = await navigator.gpu.requestAdapter();
+  device = await adapter.requestDevice();
+  context = canvas.getContext("webgpu");
+  format = navigator.gpu.getPreferredCanvasFormat();
+  context.configure({ device, format, alphaMode: "opaque" });
+
+  uniformBuffer = device.createBuffer({
+    size: 4,
+    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+  });
+
+  sampler = device.createSampler({
+    magFilter: 'linear',
+    minFilter: 'linear'
+  });
+
+  const module = device.createShaderModule({
+    code: \`
+      struct Uniforms {
+        intensity: f32,
+      };
+      @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+      @group(0) @binding(1) var img: texture_2d<f32>;
+      @group(0) @binding(2) var smp: sampler;
+
+      @vertex
+      fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        var pos = array<vec2f, 6>(
+          vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+          vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+        );
+        return vec4f(pos[i], 0.0, 1.0);
+      }
+
+      @fragment
+      fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+        let uv = pos.xy / vec2f(1280.0, 720.0); // ajustar según canvas
+        let center = vec2f(0.5, 0.5);
+        let offset = uv - center;
+        let dist = length(offset);
+        let strength = uniforms.intensity;
+        let distortedUV = uv + normalize(offset) * sin(dist * 40.0) * strength * 0.05;
+        return textureSample(img, smp, distortedUV);
+      }
+    \`
+  });
+
+  pipeline = device.createRenderPipeline({
+    layout: "auto",
+    vertex: { module, entryPoint: "vs" },
+    fragment: {
+      module, entryPoint: "fs",
+      targets: [{ format }]
+    },
+    primitive: { topology: "triangle-list" }
+  });
+
+  render();
 }
 
-init();
+function updateIntensity(value) {
+  const array = new Float32Array([parseFloat(value)]);
+  device.queue.writeBuffer(uniformBuffer, 0, array.buffer);
+  render();
+}
+
+async function loadImageToTexture(file) {
+  const bitmap = await createImageBitmap(file);
+  texture = device.createTexture({
+    size: [bitmap.width, bitmap.height],
+    format: 'rgba8unorm',
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+  });
+  device.queue.copyExternalImageToTexture(
+    { source: bitmap },
+    { texture: texture },
+    [bitmap.width, bitmap.height]
+  );
+
+  bindGroup = device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: uniformBuffer } },
+      { binding: 1, resource: texture.createView() },
+      { binding: 2, resource: sampler }
+    ]
+  });
+
+  render();
+}
+
+function render() {
+  if (!texture || !bindGroup) return;
+
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginRenderPass({
+    colorAttachments: [{
+      view: context.getCurrentTexture().createView(),
+      clearValue: { r: 0, g: 0, b: 0, a: 1 },
+      loadOp: "clear",
+      storeOp: "store"
+    }]
+  });
+
+  pass.setPipeline(pipeline);
+  pass.setBindGroup(0, bindGroup);
+  pass.draw(6);
+  pass.end();
+
+  device.queue.submit([encoder.finish()]);
+}
+
+document.getElementById("imageUpload").addEventListener("change", (e) => {
+  if (e.target.files[0]) {
+    loadImageToTexture(e.target.files[0]);
+  }
+});
+
+intensitySlider.addEventListener("input", (e) => {
+  updateIntensity(e.target.value);
+});
+
+initWebGPU();
