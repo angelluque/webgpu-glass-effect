@@ -3,6 +3,7 @@ const canvas = document.getElementById("canvas");
 const intensitySlider = document.getElementById("intensity");
 let device, context, format, pipeline, bindGroup, uniformBuffer, texture, sampler;
 let canvasSize = [0, 0];
+let isInitialized = false; // Track initialization state
 
 function logMsg(msg) {
   console.log(msg);
@@ -13,7 +14,7 @@ function resizeCanvas() {
   canvas.width = canvas.clientWidth;
   canvas.height = canvas.clientHeight;
   canvasSize = [canvas.width, canvas.height];
-  if (device) updateUniforms(parseFloat(intensitySlider.value)); // Update uniforms on resize
+  if (isInitialized) updateUniforms(parseFloat(intensitySlider.value)); // Only update if initialized
 }
 
 async function initWebGPU() {
@@ -76,22 +77,27 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
 
 @fragment
 fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-  // Normalize position to [0, 1] based on canvas resolution
   let uv = pos.xy / uniforms.resolution;
-  // Adjust UV to match texture aspect ratio (assuming texture is square for now)
   let aspect = uniforms.resolution.x / uniforms.resolution.y;
   let adjustedUV = vec2f(uv.x * aspect, uv.y);
   let center = vec2f(0.5 * aspect, 0.5);
   let offset = adjustedUV - center;
   let dist = length(offset);
-  let strength = uniforms.intensity * 0.1; // Scale intensity for better visibility
-  let distortedUV = adjustedUV + normalize(offset) * sin(dist * 10.0) * strength; // Reduced frequency to 10.0
-  let clampedUV = clamp(distortedUV, vec2f(0.0), vec2f(1.0, 1.0 / aspect));
+  let strength = uniforms.intensity * 0.1;
+  // Avoid division by zero in normalize by adding a small epsilon
+  let safeOffset = select(offset, vec2f(0.001), dist < 0.0001);
+  let distortedUV = adjustedUV + normalize(safeOffset) * sin(dist * 10.0) * strength;
+  let clampedUV = clamp(distortedUV, vec2f(0.0), vec2f(1.0 * aspect, 1.0));
   return textureSample(img, smp, clampedUV);
 }
 `;
 
     const shaderModule = device.createShaderModule({ code: shaderCode });
+    // Check if shader module creation failed
+    if (!shaderModule) {
+      logMsg("❌ Error: No se pudo crear el módulo de shader.");
+      return false;
+    }
 
     pipeline = device.createRenderPipeline({
       layout: "auto",
@@ -104,7 +110,13 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
       primitive: { topology: "triangle-list" }
     });
 
+    if (!pipeline) {
+      logMsg("❌ Error: No se pudo crear el pipeline de renderizado.");
+      return false;
+    }
+
     logMsg("✅ WebGPU inicializado.");
+    isInitialized = true; // Mark as initialized
     return true;
   } catch (err) {
     logMsg("❌ ERROR initWebGPU: " + err.message);
@@ -114,6 +126,11 @@ fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 
 async function loadImageToTexture(fileOrUrl) {
   try {
+    if (!isInitialized || !pipeline) {
+      logMsg("⚠️ WebGPU no está inicializado correctamente.");
+      return;
+    }
+
     let bitmap;
     if (typeof fileOrUrl === "string") {
       const response = await fetch(fileOrUrl, { mode: "cors" });
@@ -155,7 +172,11 @@ async function loadImageToTexture(fileOrUrl) {
 }
 
 function updateUniforms(intensity) {
-  const array = new Float32Array([intensity, canvasSize[0], canvasSize[1], 0, 0, 0, 0]); // 28 bytes, padded to 32
+  if (!isInitialized || !uniformBuffer) {
+    logMsg("⚠️ Uniform buffer no está inicializado.");
+    return;
+  }
+  const array = new Float32Array([intensity, canvasSize[0], canvasSize[1], 0, 0, 0, 0]);
   device.queue.writeBuffer(uniformBuffer, 0, array);
   logMsg(`🎚️ Intensidad: ${intensity}`);
 }
@@ -202,8 +223,7 @@ intensitySlider.addEventListener("input", (e) => {
 
 window.addEventListener("resize", () => {
   resizeCanvas();
-  updateUniforms(parseFloat(intensitySlider.value));
-  render();
+  if (isInitialized) render();
 });
 
 async function loadDefaultImage() {
