@@ -3,17 +3,17 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8">
-  <title>WebGL Glass Effect</title>
+  <title>WebGPU Azul – Estilo Toji</title>
   <style>
-    body { background: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 2em; }
-    canvas { width: 1024px; height: 1024px; border: 1px solid #444; display: block; margin: 0 auto; }
-    input { margin-top: 1em; }
+    body { background: #111; color: white; font-family: monospace; padding: 2em; text-align: center; }
+    canvas { border: 1px solid #555; margin-top: 1em; width: 512px; height: 512px; }
+    #log { margin-top: 2em; background: #222; padding: 1em; white-space: pre-wrap; text-align: left; max-width: 600px; margin-inline: auto; }
   </style>
 </head>
 <body>
-  <h1>WebGL Glass Refraction Effect</h1>
-  <input type="file" id="imgInput" accept="image/*" />
-  <canvas id="canvas" width="1024" height="1024"></canvas>
+  <h1>WebGPU Azul – Estilo Toji</h1>
+  <canvas id="canvas" width="512" height="512"></canvas>
+  <div id="log">Esperando...</div>
   <script type="module" src="main.js"></script>
 </body>
 </html>
