@@ -83,7 +83,7 @@ async function init() {
     pass.end();
 
     device.queue.submit([encoder.finish()]);
-    logMsg("Render azul completado.");
+    logMsg("✅ Render azul completado.");
   } catch (err) {
     logMsg("❌ ERROR: " + err.message);
   }
