@@ -149,6 +149,7 @@ document.getElementById("imageUpload").addEventListener("change", (e) => {
 });
 
 intensitySlider.addEventListener("input", (e) => {
+  document.getElementById("intensityValue").textContent = e.target.value;
   updateUniforms(parseFloat(e.target.value));
   render();
 });
