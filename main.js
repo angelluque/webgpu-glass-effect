@@ -50,7 +50,7 @@ async function initWebGPU() {
     });
 
     uniformBuffer = device.createBuffer({
-      size: 16, // intensity (f32) + resolution (vec2f) + padding (f32)
+      size: 32, // Increased to 32 bytes to meet minimum binding size and ensure alignment
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
@@ -58,7 +58,7 @@ async function initWebGPU() {
 struct Uniforms {
   intensity: f32,
   resolution: vec2f,
-  padding: f32
+  padding: array<f32, 5> // Padding to ensure 32-byte size (4 + 8 + 20 = 32 bytes)
 };
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var img: texture_2d<f32>;
@@ -150,7 +150,7 @@ async function loadImageToTexture(fileOrUrl) {
 }
 
 function updateUniforms(intensity) {
-  const array = new Float32Array([intensity, canvasSize[0], canvasSize[1], 0.0]);
+  const array = new Float32Array([intensity, canvasSize[0], canvasSize[1], 0, 0, 0, 0, 0]); // 8 * 4 = 32 bytes
   device.queue.writeBuffer(uniformBuffer, 0, array);
   logMsg(`🎚️ Intensidad: ${intensity}`);
 }
@@ -202,7 +202,7 @@ window.addEventListener("resize", () => {
 });
 
 async function loadDefaultImage() {
-  const defaultImageUrl = "https://picsum.photos/512/512"; // Usa una imagen pública para pruebas
+  const defaultImageUrl = "https://picsum.photos/512/512";
   await loadImageToTexture(defaultImageUrl);
 }
 
