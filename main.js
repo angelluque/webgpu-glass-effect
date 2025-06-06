@@ -16,40 +16,43 @@ async function init() {
     logMsg("Inicializando WebGPU...");
 
     const adapter = await navigator.gpu.requestAdapter();
-    if (!adapter) {
-      logMsg("No se pudo obtener el adaptador GPU.");
-      return;
-    }
-
     const device = await adapter.requestDevice();
+
     const canvas = document.getElementById("canvas");
     const context = canvas.getContext("webgpu");
 
     const format = navigator.gpu.getPreferredCanvasFormat();
+
     context.configure({
       device,
       format,
       alphaMode: "opaque"
     });
 
-    const module = device.createShaderModule({
+    const shaderModule = device.createShaderModule({
       code: \`
+        struct VertexOut {
+          @builtin(position) Position : vec4<f32>,
+        };
+
         @vertex
-        fn vs(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
-          var pos = array<vec2f, 6>(
-            vec2f(-1.0, -1.0),
-            vec2f(1.0, -1.0),
-            vec2f(-1.0, 1.0),
-            vec2f(-1.0, 1.0),
-            vec2f(1.0, -1.0),
-            vec2f(1.0, 1.0)
+        fn vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOut {
+          var pos = array<vec2<f32>, 6>(
+            vec2<f32>(-1.0, -1.0),
+            vec2<f32>(1.0, -1.0),
+            vec2<f32>(-1.0, 1.0),
+            vec2<f32>(-1.0, 1.0),
+            vec2<f32>(1.0, -1.0),
+            vec2<f32>(1.0, 1.0)
           );
-          return vec4f(pos[index], 0.0, 1.0);
+          var output : VertexOut;
+          output.Position = vec4<f32>(pos[vertexIndex], 0.0, 1.0);
+          return output;
         }
 
         @fragment
-        fn fs() -> @location(0) vec4f {
-          return vec4f(0.0, 0.3, 1.0, 1.0); // Azul puro
+        fn fs() -> @location(0) vec4<f32> {
+          return vec4<f32>(0.0, 0.3, 1.0, 1.0); // Azul
         }
       \`
     });
@@ -57,32 +60,38 @@ async function init() {
     const pipeline = device.createRenderPipeline({
       layout: "auto",
       vertex: {
-        module,
+        module: shaderModule,
         entryPoint: "vs"
       },
       fragment: {
-        module,
+        module: shaderModule,
         entryPoint: "fs",
         targets: [{ format }]
       },
-      primitive: { topology: "triangle-list" }
+      primitive: {
+        topology: "triangle-list"
+      }
     });
 
-    const encoder = device.createCommandEncoder();
-    const pass = encoder.beginRenderPass({
+    const commandEncoder = device.createCommandEncoder();
+    const textureView = context.getCurrentTexture().createView();
+
+    const renderPassDescriptor = {
       colorAttachments: [{
-        view: context.getCurrentTexture().createView(),
+        view: textureView,
         clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
         loadOp: "clear",
         storeOp: "store"
       }]
-    });
+    };
 
-    pass.setPipeline(pipeline);
-    pass.draw(6);
-    pass.end();
+    const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+    passEncoder.setPipeline(pipeline);
+    passEncoder.draw(6, 1, 0, 0);
+    passEncoder.end();
 
-    device.queue.submit([encoder.finish()]);
+    device.queue.submit([commandEncoder.finish()]);
+
     logMsg("✅ Render azul completado.");
   } catch (err) {
     logMsg("❌ ERROR: " + err.message);
