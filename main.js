@@ -1,4 +1,3 @@
-
 const log = document.getElementById("log");
 
 function logMsg(msg) {
@@ -8,29 +7,58 @@ function logMsg(msg) {
 
 async function init() {
   try {
+    logMsg("Comprobando soporte WebGPU...");
     if (!navigator.gpu) {
-      logMsg("WebGPU no disponible.");
+      logMsg("❌ WebGPU no disponible. Usa Chrome 113+ o habilita WebGPU en Safari.");
       return;
     }
 
-    logMsg("Inicializando WebGPU...");
-
+    logMsg("Solicitando adaptador WebGPU...");
     const adapter = await navigator.gpu.requestAdapter();
-    const device = await adapter.requestDevice();
+    if (!adapter) {
+      logMsg("❌ No se pudo obtener el adaptador WebGPU.");
+      return;
+    }
 
+    logMsg("Solicitando dispositivo WebGPU...");
+    const device = await adapter.requestDevice();
+    if (!device) {
+      logMsg("❌ No se pudo obtener el dispositivo WebGPU.");
+      return;
+    }
+
+    logMsg("Configurando canvas...");
     const canvas = document.getElementById("canvas");
+    if (!canvas) {
+      logMsg("❌ No se encontró el elemento <canvas id='canvas'>.");
+      return;
+    }
+
+    // Establecer tamaño fijo como en la demo de Toji
+    canvas.width = 800;
+    canvas.height = 600;
+    logMsg(`Canvas configurado: ${canvas.width}x${canvas.height}`);
+
+    logMsg("Obteniendo contexto WebGPU...");
     const context = canvas.getContext("webgpu");
+    if (!context) {
+      logMsg("❌ No se pudo obtener el contexto WebGPU.");
+      return;
+    }
 
     const format = navigator.gpu.getPreferredCanvasFormat();
+    logMsg(`Formato de canvas preferido: ${format}`);
 
+    logMsg("Configurando contexto WebGPU...");
     context.configure({
       device,
       format,
       alphaMode: "opaque"
     });
 
+    logMsg("Creando módulo de shader...");
     const shaderModule = device.createShaderModule({
-      code: \`
+      code: `
         struct VertexOut {
           @builtin(position) Position : vec4<f32>,
         };
@@ -54,9 +82,10 @@ async function init() {
         fn fs() -> @location(0) vec4<f32> {
           return vec4<f32>(0.0, 0.3, 1.0, 1.0); // Azul
         }
-      \`
+      `
     });
 
+    logMsg("Creando pipeline de renderizado...");
     const pipeline = device.createRenderPipeline({
       layout: "auto",
       vertex: {
@@ -73,29 +102,27 @@ async function init() {
       }
     });
 
-    const commandEncoder = device.createCommandEncoder();
-    const textureView = context.getCurrentTexture().createView();
+    logMsg("Iniciando renderizado...");
+    function render() {
+      const commandEncoder = device.createCommandEncoder();
+      const textureView = context.getCurrentTexture().createView();
 
-    const renderPassDescriptor = {
-      colorAttachments: [{
-        view: textureView,
-        clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
-        loadOp: "clear",
-        storeOp: "store"
-      }]
-    };
+      const renderPassDescriptor = {
+        colorAttachments: [{
+          view: textureView,
+          clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
+          loadOp: "clear",
+          storeOp: "store"
+        }]
+      };
 
-    const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
-    passEncoder.setPipeline(pipeline);
-    passEncoder.draw(6, 1, 0, 0);
-    passEncoder.end();
+      const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+      passEncoder.setPipeline(pipeline);
+      passEncoder.draw(6, 1, 0, 0);
+      passEncoder.end();
 
-    device.queue.submit([commandEncoder.finish()]);
+      device.queue.submit([commandEncoder.finish()]);
+      logMsg("Frame renderizado.");
+    }
 
-    logMsg("✅ Render azul completado.");
-  } catch (err) {
-    logMsg("❌ ERROR: " + err.message);
-  }
-}
-
-init();
+    // B
