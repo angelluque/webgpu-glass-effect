@@ -7,7 +7,6 @@ const intensityValue = document.getElementById("intensityValue");
 let device, context, pipeline, sampler;
 let uniformBuffer, imageTexture, normalTexture;
 let bindGroup;
-let imageSize = [1, 1];
 
 function logMsg(msg) {
   console.log(msg);
@@ -72,33 +71,13 @@ async function init() {
     `
   });
 
-  pipeline = device.createRenderPipeline({
-    layout: "auto",
-    vertex: { module: shaderModule, entryPoint: "vs" },
-    fragment: { module: shaderModule, entryPoint: "fs", targets: [{ format }] },
-    primitive: { topology: "triangle-list" }
-  });
+  const [img, norm] = await Promise.all([
+    loadImageBitmap("image.jpg"),
+    loadImageBitmap("normal.jpg")
+  ]);
 
-  logMsg("✅ WebGPU inicializado");
-}
-
-async function createTextureFromImage(bitmap) {
-  const texture = device.createTexture({
-    size: [bitmap.width, bitmap.height],
-    format: "rgba8unorm",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
-  });
-  device.queue.copyExternalImageToTexture({ source: bitmap }, { texture }, [bitmap.width, bitmap.height]);
-  return texture;
-}
-
-async function loadImages(imageFile, normalFile) {
-  const imgBitmap = await createImageBitmap(imageFile);
-  const normBitmap = await createImageBitmap(normalFile);
-
-  imageTexture = await createTextureFromImage(imgBitmap);
-  normalTexture = await createTextureFromImage(normBitmap);
-  imageSize = [imgBitmap.width, imgBitmap.height];
+  imageTexture = createTextureFromImage(img);
+  normalTexture = createTextureFromImage(norm);
 
   bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
@@ -110,11 +89,26 @@ async function loadImages(imageFile, normalFile) {
     ]
   });
 
-  logMsg("🖼️ Texturas cargadas.");
-  updateAndRender();
+  render();
 }
 
-function updateAndRender() {
+async function loadImageBitmap(url) {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  return await createImageBitmap(blob);
+}
+
+function createTextureFromImage(bitmap) {
+  const texture = device.createTexture({
+    size: [bitmap.width, bitmap.height],
+    format: "rgba8unorm",
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+  });
+  device.queue.copyExternalImageToTexture({ source: bitmap }, { texture }, [bitmap.width, bitmap.height]);
+  return texture;
+}
+
+function render() {
   const intensity = parseFloat(intensitySlider.value);
   intensityValue.textContent = intensity.toFixed(2);
   device.queue.writeBuffer(uniformBuffer, 0, new Float32Array([intensity]));
@@ -123,7 +117,7 @@ function updateAndRender() {
   const pass = encoder.beginRenderPass({
     colorAttachments: [{
       view: context.getCurrentTexture().createView(),
-      clearValue: { r: 0.1, g: 0.1, b: 0.2, a: 1 },
+      clearValue: { r: 0.05, g: 0.05, b: 0.1, a: 1 },
       loadOp: "clear",
       storeOp: "store"
     }]
@@ -133,31 +127,8 @@ function updateAndRender() {
   pass.setBindGroup(0, bindGroup);
   pass.draw(6);
   pass.end();
-
   device.queue.submit([encoder.finish()]);
-  logMsg("✅ Imagen renderizada.");
 }
 
-document.getElementById("imageUpload").addEventListener("change", () => {
-  const imageFile = document.getElementById("imageUpload").files[0];
-  const normalFile = document.getElementById("normalUpload").files[0];
-  if (imageFile && normalFile) {
-    loadImages(imageFile, normalFile);
-  } else {
-    logMsg("⚠️ Carga ambas imágenes.");
-  }
-});
-
-document.getElementById("normalUpload").addEventListener("change", () => {
-  const imageFile = document.getElementById("imageUpload").files[0];
-  const normalFile = document.getElementById("normalUpload").files[0];
-  if (imageFile && normalFile) {
-    loadImages(imageFile, normalFile);
-  }
-});
-
-intensitySlider.addEventListener("input", () => {
-  updateAndRender();
-});
-
+intensitySlider.addEventListener("input", render);
 init();
