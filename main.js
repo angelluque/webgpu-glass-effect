@@ -1,93 +1,101 @@
 
-const canvas = document.getElementById('canvas');
-const gl = canvas.getContext('webgl');
-const input = document.getElementById('imgInput');
+const log = document.getElementById("log");
 
-let texture, imageLoaded = false;
+function logMsg(msg) {
+  console.log(msg);
+  log.textContent += "\n" + msg;
+}
 
-function compileShader(source, type) {
-  const shader = gl.createShader(type);
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    throw new Error('Shader compile error: ' + gl.getShaderInfoLog(shader));
+async function init() {
+  try {
+    if (!navigator.gpu) {
+      logMsg("WebGPU no disponible.");
+      return;
+    }
+
+    logMsg("Inicializando WebGPU...");
+
+    const adapter = await navigator.gpu.requestAdapter();
+    const device = await adapter.requestDevice();
+
+    const canvas = document.getElementById("canvas");
+    const context = canvas.getContext("webgpu");
+
+    const format = navigator.gpu.getPreferredCanvasFormat();
+
+    context.configure({
+      device,
+      format,
+      alphaMode: "opaque"
+    });
+
+    const shaderModule = device.createShaderModule({
+      code: \`
+        struct VertexOut {
+          @builtin(position) Position : vec4<f32>,
+        };
+
+        @vertex
+        fn vs(@builtin(vertex_index) vertexIndex: u32) -> VertexOut {
+          var pos = array<vec2<f32>, 6>(
+            vec2<f32>(-1.0, -1.0),
+            vec2<f32>(1.0, -1.0),
+            vec2<f32>(-1.0, 1.0),
+            vec2<f32>(-1.0, 1.0),
+            vec2<f32>(1.0, -1.0),
+            vec2<f32>(1.0, 1.0)
+          );
+          var output : VertexOut;
+          output.Position = vec4<f32>(pos[vertexIndex], 0.0, 1.0);
+          return output;
+        }
+
+        @fragment
+        fn fs() -> @location(0) vec4<f32> {
+          return vec4<f32>(0.0, 0.3, 1.0, 1.0); // Azul
+        }
+      \`
+    });
+
+    const pipeline = device.createRenderPipeline({
+      layout: "auto",
+      vertex: {
+        module: shaderModule,
+        entryPoint: "vs"
+      },
+      fragment: {
+        module: shaderModule,
+        entryPoint: "fs",
+        targets: [{ format }]
+      },
+      primitive: {
+        topology: "triangle-list"
+      }
+    });
+
+    const commandEncoder = device.createCommandEncoder();
+    const textureView = context.getCurrentTexture().createView();
+
+    const renderPassDescriptor = {
+      colorAttachments: [{
+        view: textureView,
+        clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
+        loadOp: "clear",
+        storeOp: "store"
+      }]
+    };
+
+    const passEncoder = commandEncoder.beginRenderPass(renderPassDescriptor);
+    passEncoder.setPipeline(pipeline);
+    passEncoder.draw(6, 1, 0, 0);
+    passEncoder.end();
+
+    device.queue.submit([commandEncoder.finish()]);
+
+    logMsg("✅ Render azul completado.");
+  } catch (err) {
+    logMsg("❌ ERROR: " + err.message);
   }
-  return shader;
 }
 
-const vsSource = \`
-attribute vec2 position;
-varying vec2 vTexCoord;
-void main() {
-  vTexCoord = position * 0.5 + 0.5;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-\`;
-
-const fsSource = \`
-precision mediump float;
-uniform sampler2D uImage;
-uniform float uTime;
-varying vec2 vTexCoord;
-void main() {
-  vec2 offset = vec2(sin(vTexCoord.y * 40.0 + uTime) * 0.01, cos(vTexCoord.x * 40.0 + uTime) * 0.01);
-  vec4 color = texture2D(uImage, vTexCoord + offset);
-  gl_FragColor = color;
-}
-\`;
-
-const program = gl.createProgram();
-gl.attachShader(program, compileShader(vsSource, gl.VERTEX_SHADER));
-gl.attachShader(program, compileShader(fsSource, gl.FRAGMENT_SHADER));
-gl.linkProgram(program);
-gl.useProgram(program);
-
-const positionLocation = gl.getAttribLocation(program, 'position');
-const uImageLocation = gl.getUniformLocation(program, 'uImage');
-const uTimeLocation = gl.getUniformLocation(program, 'uTime');
-
-const positionBuffer = gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
-  -1, -1, 1, -1, -1, 1,
-  -1, 1, 1, -1, 1, 1
-]), gl.STATIC_DRAW);
-
-gl.enableVertexAttribArray(positionLocation);
-gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
-
-function createTexture(image) {
-  texture = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  imageLoaded = true;
-}
-
-input.addEventListener('change', e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const img = new Image();
-  img.onload = () => {
-    createTexture(img);
-  };
-  img.src = URL.createObjectURL(file);
-});
-
-let start = Date.now();
-
-function render() {
-  requestAnimationFrame(render);
-  if (!imageLoaded) return;
-  gl.clearColor(0, 0, 0, 1);
-  gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.uniform1i(uImageLocation, 0);
-  gl.activeTexture(gl.TEXTURE0);
-  gl.bindTexture(gl.TEXTURE_2D, texture);
-  gl.uniform1f(uTimeLocation, (Date.now() - start) * 0.002);
-  gl.drawArrays(gl.TRIANGLES, 0, 6);
-}
-
-render();
+init();
