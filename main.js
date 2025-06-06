@@ -42,8 +42,28 @@ async function initWebGPU() {
       @group(0) @binding(1) var img: texture_2d<f32>;
       @group(0) @binding(2) var smp: sampler;
 
+      
+      struct VertexOut {
+        @builtin(position) pos: vec4f,
+        @location(0) uv: vec2f
+      };
+
       @vertex
-      fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+      fn vs(@builtin(vertex_index) i: u32) -> VertexOut {
+        var positions = array<vec2f, 6>(
+          vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+          vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+        );
+        var uvs = array<vec2f, 6>(
+          vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
+          vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0)
+        );
+        var out: VertexOut;
+        out.pos = vec4f(positions[i], 0.0, 1.0);
+        out.uv = uvs[i];
+        return out;
+      }
+    
         var pos = array<vec2f, 6>(
           vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
           vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
@@ -52,8 +72,8 @@ async function initWebGPU() {
       }
 
       @fragment
-      fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-        let uv = pos.xy / uniforms.resolution;
+      fn fs(@location(0) uv: vec2f) -> @location(0) vec4f {
+        
         let center = vec2f(0.5, 0.5);
         let offset = uv - center;
         let dist = length(offset);
