@@ -61,15 +61,15 @@ async function initWebGPU() {
 
       @fragment
       fn fs(@location(0) uv: vec2f) -> @location(0) vec4f {
-        let freq = 40.0;
-        let strength = uniforms.intensity * 0.03;
+        let freq = 60.0;
+        let strength = uniforms.intensity * 0.05;
 
-        let wave = vec2f(
-          sin((uv.y + uv.x * 0.5) * freq),
-          cos((uv.x + uv.y * 0.5) * freq)
-        );
+        // normal map procedural
+        let angleX = sin(uv.y * freq) * 0.5;
+        let angleY = cos(uv.x * freq) * 0.5;
+        let normal = vec2f(angleX, angleY);
 
-        let distortedUV = uv + wave * strength;
+        let distortedUV = uv + normal * strength;
 
         return textureSample(img, smp, distortedUV);
       }
