@@ -18,11 +18,7 @@ async function initWebGPU() {
   format = navigator.gpu.getPreferredCanvasFormat();
 
   resizeCanvas();
-  context.configure({
-    device,
-    format,
-    alphaMode: "opaque"
-  });
+  context.configure({ device, format, alphaMode: "opaque" });
 
   sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 
@@ -42,23 +38,37 @@ async function initWebGPU() {
       @group(0) @binding(1) var img: texture_2d<f32>;
       @group(0) @binding(2) var smp: sampler;
 
+      struct VertexOut {
+        @builtin(position) pos: vec4f,
+        @location(0) uv: vec2f
+      };
+
       @vertex
-      fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+      fn vs(@builtin(vertex_index) i: u32) -> VertexOut {
         var pos = array<vec2f, 6>(
           vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
           vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
         );
-        return vec4f(pos[i], 0.0, 1.0);
+        var uvs = array<vec2f, 6>(
+          vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
+          vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0)
+        );
+        var output: VertexOut;
+        output.pos = vec4f(pos[i], 0.0, 1.0);
+        output.uv = uvs[i];
+        return output;
+      }
+
+      fn rand(coord: vec2f) -> f32 {
+        return fract(sin(dot(coord, vec2f(12.9898,78.233))) * 43758.5453);
       }
 
       @fragment
-      fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-        let uv = pos.xy / uniforms.resolution;
-        let center = vec2f(0.5, 0.5);
-        let offset = uv - center;
-        let dist = length(offset);
-        let strength = uniforms.intensity;
-        let distortedUV = uv + normalize(offset) * sin(dist * 40.0) * strength * 0.05;
+      fn fs(@location(0) uv: vec2f) -> @location(0) vec4f {
+        let cellSize = 0.04;
+        let gridUV = floor(uv / cellSize) * cellSize;
+        let jitter = (rand(gridUV * 100.0) - 0.5) * uniforms.intensity * 0.1;
+        let distortedUV = uv + vec2f(jitter, jitter);
         return textureSample(img, smp, distortedUV);
       }
     `
@@ -87,6 +97,7 @@ function resizeCanvas() {
 function updateUniforms(intensity) {
   const array = new Float32Array([intensity, ...canvasSize, ...textureSize]);
   device.queue.writeBuffer(uniformBuffer, 0, array.buffer);
+  document.getElementById("intensityValue").textContent = intensity.toFixed(2);
 }
 
 async function loadImageToTexture(file) {
@@ -149,7 +160,6 @@ document.getElementById("imageUpload").addEventListener("change", (e) => {
 });
 
 intensitySlider.addEventListener("input", (e) => {
-  document.getElementById("intensityValue").textContent = e.target.value;
   updateUniforms(parseFloat(e.target.value));
   render();
 });
