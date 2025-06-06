@@ -13,6 +13,7 @@ function resizeCanvas() {
   canvas.width = canvas.clientWidth;
   canvas.height = canvas.clientHeight;
   canvasSize = [canvas.width, canvas.height];
+  if (device) updateUniforms(parseFloat(intensitySlider.value)); // Update uniforms on resize
 }
 
 async function initWebGPU() {
@@ -50,7 +51,7 @@ async function initWebGPU() {
     });
 
     uniformBuffer = device.createBuffer({
-      size: 32, // 4 (intensity) + 8 (resolution) + 16 (padding vec4f) = 32 bytes
+      size: 32, // 4 (intensity) + 8 (resolution) + 16 (padding vec4f)
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
@@ -58,7 +59,7 @@ async function initWebGPU() {
 struct Uniforms {
   intensity: f32,
   resolution: vec2f,
-  padding: vec4f // 16 bytes to ensure alignment and meet minimum size
+  padding: vec4f // 16 bytes for alignment
 };
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var img: texture_2d<f32>;
@@ -75,13 +76,17 @@ fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
 
 @fragment
 fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  // Normalize position to [0, 1] based on canvas resolution
   let uv = pos.xy / uniforms.resolution;
-  let center = vec2f(0.5, 0.5);
-  let offset = uv - center;
+  // Adjust UV to match texture aspect ratio (assuming texture is square for now)
+  let aspect = uniforms.resolution.x / uniforms.resolution.y;
+  let adjustedUV = vec2f(uv.x * aspect, uv.y);
+  let center = vec2f(0.5 * aspect, 0.5);
+  let offset = adjustedUV - center;
   let dist = length(offset);
-  let strength = uniforms.intensity;
-  let distortedUV = uv + normalize(offset) * sin(dist * 40.0) * strength * 0.05;
-  let clampedUV = clamp(distortedUV, vec2f(0.0), vec2f(1.0));
+  let strength = uniforms.intensity * 0.1; // Scale intensity for better visibility
+  let distortedUV = adjustedUV + normalize(offset) * sin(dist * 10.0) * strength; // Reduced frequency to 10.0
+  let clampedUV = clamp(distortedUV, vec2f(0.0), vec2f(1.0, 1.0 / aspect));
   return textureSample(img, smp, clampedUV);
 }
 `;
@@ -150,7 +155,7 @@ async function loadImageToTexture(fileOrUrl) {
 }
 
 function updateUniforms(intensity) {
-  const array = new Float32Array([intensity, canvasSize[0], canvasSize[1], 0, 0, 0, 0]); // 7 * 4 = 28 bytes, padded to 32
+  const array = new Float32Array([intensity, canvasSize[0], canvasSize[1], 0, 0, 0, 0]); // 28 bytes, padded to 32
   device.queue.writeBuffer(uniformBuffer, 0, array);
   logMsg(`🎚️ Intensidad: ${intensity}`);
 }
