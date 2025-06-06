@@ -50,7 +50,7 @@ async function initWebGPU() {
     });
 
     uniformBuffer = device.createBuffer({
-      size: 32, // Increased to 32 bytes to meet minimum binding size and ensure alignment
+      size: 32, // 4 (intensity) + 8 (resolution) + 16 (padding vec4f) = 32 bytes
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
@@ -58,7 +58,7 @@ async function initWebGPU() {
 struct Uniforms {
   intensity: f32,
   resolution: vec2f,
-  padding: array<f32, 5> // Padding to ensure 32-byte size (4 + 8 + 20 = 32 bytes)
+  padding: vec4f // 16 bytes to ensure alignment and meet minimum size
 };
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
 @group(0) @binding(1) var img: texture_2d<f32>;
@@ -150,7 +150,7 @@ async function loadImageToTexture(fileOrUrl) {
 }
 
 function updateUniforms(intensity) {
-  const array = new Float32Array([intensity, canvasSize[0], canvasSize[1], 0, 0, 0, 0, 0]); // 8 * 4 = 32 bytes
+  const array = new Float32Array([intensity, canvasSize[0], canvasSize[1], 0, 0, 0, 0]); // 7 * 4 = 28 bytes, padded to 32
   device.queue.writeBuffer(uniformBuffer, 0, array);
   logMsg(`🎚️ Intensidad: ${intensity}`);
 }
