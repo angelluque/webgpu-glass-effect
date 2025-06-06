@@ -59,16 +59,18 @@ async function initWebGPU() {
         return output;
       }
 
-      fn rand(coord: vec2f) -> f32 {
-        return fract(sin(dot(coord, vec2f(12.9898,78.233))) * 43758.5453);
-      }
-
       @fragment
       fn fs(@location(0) uv: vec2f) -> @location(0) vec4f {
-        let cellSize = 0.04;
-        let gridUV = floor(uv / cellSize) * cellSize;
-        let jitter = (rand(gridUV * 100.0) - 0.5) * uniforms.intensity * 0.1;
-        let distortedUV = uv + vec2f(jitter, jitter);
+        let freq = 40.0;
+        let strength = uniforms.intensity * 0.03;
+
+        let wave = vec2f(
+          sin((uv.y + uv.x * 0.5) * freq),
+          cos((uv.x + uv.y * 0.5) * freq)
+        );
+
+        let distortedUV = uv + wave * strength;
+
         return textureSample(img, smp, distortedUV);
       }
     `
