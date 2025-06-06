@@ -1,29 +1,33 @@
 
+const canvas = document.getElementById("canvas");
 const log = document.getElementById("log");
+const intensitySlider = document.getElementById("intensity");
+const intensityValue = document.getElementById("intensityValue");
+
+let device, context, pipeline, sampler;
+let uniformBuffer, imageTexture, normalTexture;
+let bindGroup;
+let imageSize = [1, 1];
+
 function logMsg(msg) {
   console.log(msg);
   log.textContent += "\n" + msg;
 }
 
-const canvas = document.getElementById("canvas");
-const intensitySlider = document.getElementById("intensity");
-let device, context, format, pipeline, bindGroup, uniformBuffer, texture, sampler;
-let canvasSize = [0, 0];
-let textureSize = [1, 1];
-
-async function initWebGPU() {
+async function init() {
   const adapter = await navigator.gpu.requestAdapter();
   device = await adapter.requestDevice();
   context = canvas.getContext("webgpu");
-  format = navigator.gpu.getPreferredCanvasFormat();
-
-  resizeCanvas();
+  const format = navigator.gpu.getPreferredCanvasFormat();
   context.configure({ device, format, alphaMode: "opaque" });
+
+  canvas.width = canvas.clientWidth;
+  canvas.height = canvas.clientHeight;
 
   sampler = device.createSampler({ magFilter: 'linear', minFilter: 'linear' });
 
   uniformBuffer = device.createBuffer({
-    size: 32,
+    size: 16,
     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
   });
 
@@ -31,12 +35,12 @@ async function initWebGPU() {
     code: `
       struct Uniforms {
         intensity: f32,
-        resolution: vec2f,
-        textureSize: vec2f
+        _pad: vec3f
       };
       @group(0) @binding(0) var<uniform> uniforms: Uniforms;
       @group(0) @binding(1) var img: texture_2d<f32>;
-      @group(0) @binding(2) var smp: sampler;
+      @group(0) @binding(2) var norm: texture_2d<f32>;
+      @group(0) @binding(3) var smp: sampler;
 
       struct VertexOut {
         @builtin(position) pos: vec4f,
@@ -53,25 +57,17 @@ async function initWebGPU() {
           vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
           vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0)
         );
-        var output: VertexOut;
-        output.pos = vec4f(pos[i], 0.0, 1.0);
-        output.uv = uvs[i];
-        return output;
+        var out: VertexOut;
+        out.pos = vec4f(pos[i], 0.0, 1.0);
+        out.uv = uvs[i];
+        return out;
       }
 
       @fragment
       fn fs(@location(0) uv: vec2f) -> @location(0) vec4f {
-        let freq = 60.0;
-        let strength = uniforms.intensity * 0.05;
-
-        // normal map procedural
-        let angleX = sin(uv.y * freq) * 0.5;
-        let angleY = cos(uv.x * freq) * 0.5;
-        let normal = vec2f(angleX, angleY);
-
-        let distortedUV = uv + normal * strength;
-
-        return textureSample(img, smp, distortedUV);
+        let n = textureSample(norm, smp, uv).xy * 2.0 - 1.0;
+        let displacedUV = uv + n * uniforms.intensity * 0.1;
+        return textureSample(img, smp, displacedUV);
       }
     `
   });
@@ -79,68 +75,55 @@ async function initWebGPU() {
   pipeline = device.createRenderPipeline({
     layout: "auto",
     vertex: { module: shaderModule, entryPoint: "vs" },
-    fragment: {
-      module: shaderModule,
-      entryPoint: "fs",
-      targets: [{ format }]
-    },
+    fragment: { module: shaderModule, entryPoint: "fs", targets: [{ format }] },
     primitive: { topology: "triangle-list" }
   });
 
-  logMsg("✅ WebGPU inicializado.");
+  logMsg("✅ WebGPU inicializado");
 }
 
-function resizeCanvas() {
-  canvas.width = canvas.clientWidth;
-  canvas.height = canvas.clientHeight;
-  canvasSize = [canvas.width, canvas.height];
-}
-
-function updateUniforms(intensity) {
-  const array = new Float32Array([intensity, ...canvasSize, ...textureSize]);
-  device.queue.writeBuffer(uniformBuffer, 0, array.buffer);
-  document.getElementById("intensityValue").textContent = intensity.toFixed(2);
-}
-
-async function loadImageToTexture(file) {
-  const bitmap = await createImageBitmap(file);
-  textureSize = [bitmap.width, bitmap.height];
-  logMsg("🖼️ Imagen cargada: " + bitmap.width + "x" + bitmap.height);
-
-  texture = device.createTexture({
-    size: textureSize,
-    format: 'rgba8unorm',
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT
+async function createTextureFromImage(bitmap) {
+  const texture = device.createTexture({
+    size: [bitmap.width, bitmap.height],
+    format: "rgba8unorm",
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
   });
+  device.queue.copyExternalImageToTexture({ source: bitmap }, { texture }, [bitmap.width, bitmap.height]);
+  return texture;
+}
 
-  device.queue.copyExternalImageToTexture(
-    { source: bitmap },
-    { texture },
-    textureSize
-  );
+async function loadImages(imageFile, normalFile) {
+  const imgBitmap = await createImageBitmap(imageFile);
+  const normBitmap = await createImageBitmap(normalFile);
+
+  imageTexture = await createTextureFromImage(imgBitmap);
+  normalTexture = await createTextureFromImage(normBitmap);
+  imageSize = [imgBitmap.width, imgBitmap.height];
 
   bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: uniformBuffer } },
-      { binding: 1, resource: texture.createView() },
-      { binding: 2, resource: sampler }
+      { binding: 1, resource: imageTexture.createView() },
+      { binding: 2, resource: normalTexture.createView() },
+      { binding: 3, resource: sampler }
     ]
   });
 
-  logMsg("✅ Textura lista.");
-  updateUniforms(parseFloat(intensitySlider.value));
-  render();
+  logMsg("🖼️ Texturas cargadas.");
+  updateAndRender();
 }
 
-function render() {
-  if (!texture || !bindGroup) return;
+function updateAndRender() {
+  const intensity = parseFloat(intensitySlider.value);
+  intensityValue.textContent = intensity.toFixed(2);
+  device.queue.writeBuffer(uniformBuffer, 0, new Float32Array([intensity]));
 
   const encoder = device.createCommandEncoder();
   const pass = encoder.beginRenderPass({
     colorAttachments: [{
       view: context.getCurrentTexture().createView(),
-      clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
+      clearValue: { r: 0.1, g: 0.1, b: 0.2, a: 1 },
       loadOp: "clear",
       storeOp: "store"
     }]
@@ -155,24 +138,26 @@ function render() {
   logMsg("✅ Imagen renderizada.");
 }
 
-document.getElementById("imageUpload").addEventListener("change", (e) => {
-  if (e.target.files[0]) {
-    loadImageToTexture(e.target.files[0]);
+document.getElementById("imageUpload").addEventListener("change", () => {
+  const imageFile = document.getElementById("imageUpload").files[0];
+  const normalFile = document.getElementById("normalUpload").files[0];
+  if (imageFile && normalFile) {
+    loadImages(imageFile, normalFile);
+  } else {
+    logMsg("⚠️ Carga ambas imágenes.");
   }
 });
 
-intensitySlider.addEventListener("input", (e) => {
-  updateUniforms(parseFloat(e.target.value));
-  render();
+document.getElementById("normalUpload").addEventListener("change", () => {
+  const imageFile = document.getElementById("imageUpload").files[0];
+  const normalFile = document.getElementById("normalUpload").files[0];
+  if (imageFile && normalFile) {
+    loadImages(imageFile, normalFile);
+  }
 });
 
-window.addEventListener("resize", () => {
-  resizeCanvas();
-  updateUniforms(parseFloat(intensitySlider.value));
-  render();
+intensitySlider.addEventListener("input", () => {
+  updateAndRender();
 });
 
-initWebGPU().then(() => {
-  resizeCanvas();
-  updateUniforms(parseFloat(intensitySlider.value));
-});
+init();
