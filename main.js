@@ -36,37 +36,37 @@ async function initWebGPU() {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
 
-    const shaderModule = device.createShaderModule({
-      code: \`
-        struct Uniforms {
-          intensity: f32,
-          resolution: vec2f
-        };
-        @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-        @group(0) @binding(1) var img: texture_2d<f32>;
-        @group(0) @binding(2) var smp: sampler;
+    const shaderCode = `
+      struct Uniforms {
+        intensity: f32,
+        resolution: vec2f
+      };
+      @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+      @group(0) @binding(1) var img: texture_2d<f32>;
+      @group(0) @binding(2) var smp: sampler;
 
-        @vertex
-        fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
-          var pos = array<vec2f, 6>(
-            vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
-            vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
-          );
-          return vec4f(pos[i], 0.0, 1.0);
-        }
+      @vertex
+      fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+        var pos = array<vec2f, 6>(
+          vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+          vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+        );
+        return vec4f(pos[i], 0.0, 1.0);
+      }
 
-        @fragment
-        fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-          let uv = pos.xy / uniforms.resolution;
-          let center = vec2f(0.5, 0.5);
-          let offset = uv - center;
-          let dist = length(offset);
-          let strength = uniforms.intensity;
-          let distortedUV = uv + normalize(offset) * sin(dist * 40.0) * strength * 0.05;
-          return textureSample(img, smp, distortedUV);
-        }
-      \`
-    });
+      @fragment
+      fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+        let uv = pos.xy / uniforms.resolution;
+        let center = vec2f(0.5, 0.5);
+        let offset = uv - center;
+        let dist = length(offset);
+        let strength = uniforms.intensity;
+        let distortedUV = uv + normalize(offset) * sin(dist * 40.0) * strength * 0.05;
+        return textureSample(img, smp, distortedUV);
+      }
+    `;
+
+    const shaderModule = device.createShaderModule({ code: shaderCode });
 
     pipeline = device.createRenderPipeline({
       layout: "auto",
