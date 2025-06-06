@@ -55,37 +55,36 @@ async function initWebGPU() {
     });
 
     const shaderCode = `
-      struct Uniforms {
-        intensity: f32,
-        resolution: vec2f,
-        padding: f32
-      };
-      @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-      @group(0) @binding(1) var img: texture_2d<f32>;
-      @group(0) @binding(2) var smp: sampler;
+struct Uniforms {
+  intensity: f32,
+  resolution: vec2f,
+  padding: f32
+};
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var img: texture_2d<f32>;
+@group(0) @binding(2) var smp: sampler;
 
-      @vertex
-      fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
-        var pos = array<vec2f, 6>(
-          vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
-          vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
-        );
-        return vec4f(pos[i], 0.0, 1.0);
-      }
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
+  var pos = array<vec2f, 6>(
+    vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0),
+    vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0)
+  );
+  return vec4f(pos[i], 0.0, 1.0);
+}
 
-      @fragment
-      fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
-        let uv = pos.xy / uniforms.resolution;
-        let center = vec2f(0.5, 0.5);
-        let offset = uv - center;
-        let dist = length(offset);
-        let strength = uniforms.intensity;
-        let distortedUV = uv + normalize(offset) * sin(dist * 40.0) * strength * 0.05;
-        // Clamp UVs to avoid sampling outside the texture
-        let clampedUV = clamp(distortedUV, vec2f(0.0), vec2f(1.0));
-        return textureSample(img, smp, clampedUV);
-      }
-    `;
+@fragment
+fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let uv = pos.xy / uniforms.resolution;
+  let center = vec2f(0.5, 0.5);
+  let offset = uv - center;
+  let dist = length(offset);
+  let strength = uniforms.intensity;
+  let distortedUV = uv + normalize(offset) * sin(dist * 40.0) * strength * 0.05;
+  let clampedUV = clamp(distortedUV, vec2f(0.0), vec2f(1.0));
+  return textureSample(img, smp, clampedUV);
+}
+`;
 
     const shaderModule = device.createShaderModule({ code: shaderCode });
 
@@ -112,7 +111,7 @@ async function loadImageToTexture(fileOrUrl) {
   try {
     let bitmap;
     if (typeof fileOrUrl === "string") {
-      const response = await fetch(fileOrUrl);
+      const response = await fetch(fileOrUrl, { mode: "cors" });
       if (!response.ok) throw new Error(`No se pudo cargar la imagen: ${response.status}`);
       const blob = await response.blob();
       bitmap = await createImageBitmap(blob);
@@ -152,4 +151,65 @@ async function loadImageToTexture(fileOrUrl) {
 
 function updateUniforms(intensity) {
   const array = new Float32Array([intensity, canvasSize[0], canvasSize[1], 0.0]);
-  device.queue.writeBuffer(uniformBuffer, 0, array
+  device.queue.writeBuffer(uniformBuffer, 0, array);
+  logMsg(`🎚️ Intensidad: ${intensity}`);
+}
+
+function render() {
+  try {
+    if (!texture || !bindGroup) {
+      logMsg("⚠️ Textura no cargada.");
+      return;
+    }
+
+    const encoder = device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{
+        view: context.getCurrentTexture().createView(),
+        clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
+        loadOp: "clear",
+        storeOp: "store"
+      }]
+    });
+
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, bindGroup);
+    pass.draw(6);
+    pass.end();
+
+    device.queue.submit([encoder.finish()]);
+    logMsg("✅ Imagen renderizada.");
+  } catch (err) {
+    logMsg("❌ ERROR render: " + err.message);
+  }
+}
+
+document.getElementById("imageUpload").addEventListener("change", (e) => {
+  if (e.target.files[0]) {
+    loadImageToTexture(e.target.files[0]);
+  }
+});
+
+intensitySlider.addEventListener("input", (e) => {
+  updateUniforms(parseFloat(e.target.value));
+  render();
+});
+
+window.addEventListener("resize", () => {
+  resizeCanvas();
+  updateUniforms(parseFloat(intensitySlider.value));
+  render();
+});
+
+async function loadDefaultImage() {
+  const defaultImageUrl = "https://picsum.photos/512/512"; // Usa una imagen pública para pruebas
+  await loadImageToTexture(defaultImageUrl);
+}
+
+initWebGPU().then((success) => {
+  if (success) {
+    resizeCanvas();
+    updateUniforms(parseFloat(intensitySlider.value));
+    loadDefaultImage();
+  }
+});
